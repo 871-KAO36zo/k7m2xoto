@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="音メーター">
+<title>音の大きさメーター(簡易版)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #EEF1F5;
+    --surface: #FFFFFF;
+    --ink: #1F2A44;
+    --muted: #5E6A82;
+    --track: #D5DBE5;
+    --quiet: #2E8C83;
+    --normal: #2F4B8F;
+    --loud: #C9741F;
+    --very: #B8322A;
+    --line: #2F4B8F;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121826; --surface: #1B2335; --ink: #E7ECF5; --muted: #9AA6BE;
+      --track: #2C3650; --quiet: #4FB8AD; --normal: #8EA6E8; --loud: #E89A4A;
+      --very: #EC6B60; --line: #8EA6E8;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #121826; --surface: #1B2335; --ink: #E7ECF5; --muted: #9AA6BE;
+    --track: #2C3650; --quiet: #4FB8AD; --normal: #8EA6E8; --loud: #E89A4A;
+    --very: #EC6B60; --line: #8EA6E8;
+  }
+  *, *::before, *::after { box-sizing: inherit; }
+  html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); }
+  body {
+    margin: 0; min-height: 100%;
+    background: var(--bg); color: var(--ink);
+    font-family: "Zen Kaku Gothic New", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", system-ui, sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  main {
+    max-width: 30rem; margin: 0 auto;
+    padding: 1rem 1.25rem 1.5rem;
+    display: flex; flex-direction: column; gap: 1.25rem;
+  }
+  header { display: flex; align-items: center; justify-content: space-between; }
+  h1 { font-size: 1.05rem; font-weight: 700; margin: 0; }
+  .icon-btn {
+    border: 0; background: transparent; color: var(--muted);
+    font: inherit; font-size: .9rem; padding: .4rem .6rem; border-radius: .5rem; cursor: pointer;
+  }
+  .icon-btn:focus-visible, button:focus-visible { outline: 3px solid var(--normal); outline-offset: 2px; }
+
+  /* 主役:半円のメーター */
+  .gauge { position: relative; width: 100%; max-width: 22rem; margin: .5rem auto 0; }
+  .gauge svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .gauge .track { stroke: var(--track); }
+  .gauge .value { stroke: var(--level, var(--normal)); transition: stroke-dashoffset .15s linear, stroke .3s; }
+  .readout {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    text-align: center;
+  }
+  .num {
+    font-size: clamp(4rem, 22vw, 5.75rem); font-weight: 500; line-height: 1;
+    font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+  }
+  .unit { font-size: 1.1rem; color: var(--muted); margin-left: .2rem; }
+  .level { text-align: center; min-height: 3.2rem; }
+  .level strong { display: block; font-size: 1.25rem; color: var(--level, var(--ink)); }
+  .level span { color: var(--muted); font-size: .92rem; }
+
+  .stats { display: grid; grid-template-columns: 1fr 1fr; background: var(--surface); border-radius: 1rem; }
+  .stat { padding: .8rem 1rem; text-align: center; }
+  .stat + .stat { border-left: 1px solid var(--track); }
+  .stat small { display: block; color: var(--muted); font-size: .8rem; }
+  .stat b { font-size: 1.35rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+
+  .chart { background: var(--surface); border-radius: 1rem; padding: .75rem; }
+  .chart canvas { display: block; width: 100%; height: 120px; }
+  .chart p { margin: .25rem 0 0; font-size: .78rem; color: var(--muted); }
+
+  .controls { display: grid; grid-template-columns: 1fr auto; gap: .75rem; }
+  .primary, .secondary {
+    font: inherit; font-weight: 700; font-size: 1.05rem;
+    border-radius: 999px; padding: .95rem 1.25rem; cursor: pointer; border: 0;
+  }
+  .primary { background: var(--normal); color: #fff; }
+  .primary.running { background: var(--muted); }
+  .secondary { background: transparent; color: var(--ink); border: 1.5px solid var(--track); }
+  .error {
+    display: none; background: var(--surface); border-left: 4px solid var(--very);
+    padding: .75rem 1rem; border-radius: .5rem; font-size: .92rem;
+  }
+  .error.show { display: block; }
+  .note { text-align: center; font-size: .8rem; color: var(--muted); margin: 0; }
+
+  /* 情報シート */
+  dialog {
+    border: 0; padding: 0; width: min(30rem, 100%); max-height: 88%;
+    margin: auto auto 0; border-radius: 1.25rem 1.25rem 0 0;
+    background: var(--bg); color: var(--ink);
+  }
+  dialog::backdrop { background: rgba(15, 20, 35, .45); }
+  .sheet { padding: 1.25rem 1.25rem calc(1.5rem + env(safe-area-inset-bottom, 0px)); overflow-y: auto; }
+  .sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: .5rem; }
+  .sheet h2 { font-size: 1.1rem; margin: 0; }
+  .sheet h3 { font-size: .95rem; margin: 1.25rem 0 .4rem; }
+  .sheet p { margin: 0 0 .5rem; font-size: .9rem; }
+  .card { background: var(--surface); border-radius: .9rem; padding: .85rem 1rem; }
+  .offset { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+  .offset output { font-variant-numeric: tabular-nums; min-width: 5.5rem; text-align: center; font-weight: 500; }
+  .step { font: inherit; font-size: 1.2rem; width: 2.75rem; height: 2.75rem; border-radius: 50%; border: 1.5px solid var(--track); background: transparent; color: var(--ink); cursor: pointer; }
+  .link-btn { font: inherit; font-size: .85rem; background: none; border: 0; color: var(--normal); padding: .5rem 0 0; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  td { padding: .4rem 0; border-bottom: 1px solid var(--track); }
+  tr:last-child td { border-bottom: 0; }
+  td:last-child { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .gauge .value { transition: none; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>音の大きさメーター</h1>
+    <button class="icon-btn" id="infoBtn" aria-haspopup="dialog">設定・説明</button>
+  </header>
+
+  <section class="gauge" aria-live="off">
+    <svg viewBox="0 0 240 132" aria-hidden="true">
+      <path class="track" d="M20 120 A100 100 0 0 1 220 120" fill="none" stroke-width="16" stroke-linecap="round" pathLength="100"/>
+      <path class="value" id="arc" d="M20 120 A100 100 0 0 1 220 120" fill="none" stroke-width="16" stroke-linecap="round"
+            pathLength="100" stroke-dasharray="100 100" stroke-dashoffset="100"/>
+    </svg>
+    <div class="readout">
+      <span class="num" id="num">--</span><span class="unit">dB</span>
+    </div>
+  </section>
+
+  <div class="level" id="level">
+    <strong id="levelLabel">&nbsp;</strong>
+    <span id="levelExample">「測定を開始」を押すと音の大きさを表示します</span>
+  </div>
+
+  <div class="error" id="error" role="alert"></div>
+
+  <section class="stats">
+    <div class="stat"><small>最大</small><b id="max">--</b></div>
+    <div class="stat"><small>平均</small><b id="avg">--</b></div>
+  </section>
+
+  <section class="chart">
+    <canvas id="chart" aria-label="直近15秒の音の大きさのグラフ" role="img"></canvas>
+    <p>直近15秒の推移</p>
+  </section>
+
+  <div class="controls">
+    <button class="primary" id="toggle">測定を開始</button>
+    <button class="secondary" id="reset">リセット</button>
+  </div>
+
+  <p class="note">表示はあくまで目安です(簡易アプリ)</p>
+</main>
+
+<dialog id="info" aria-labelledby="infoTitle">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h2 id="infoTitle">アプリについて</h2>
+      <button class="icon-btn" id="closeInfo">閉じる</button>
+    </div>
+
+    <h3>補正</h3>
+    <div class="card">
+      <div class="offset">
+        <button class="step" id="minus" aria-label="補正値を0.5下げる">−</button>
+        <output id="offsetOut">±0.0 dB</output>
+        <button class="step" id="plus" aria-label="補正値を0.5上げる">+</button>
+      </div>
+      <p style="margin-top:.6rem;color:var(--muted);font-size:.82rem">お持ちの騒音計などと比べて数値がずれる場合に調整できます。</p>
+      <button class="link-btn" id="offsetReset">補正値を0に戻す</button>
+    </div>
+
+    <h3>音の大きさの目安</h3>
+    <div class="card">
+      <table id="refTable"></table>
+      <p style="margin-top:.6rem;color:var(--muted);font-size:.8rem">出典:全国環境研協議会 騒音調査小委員会「騒音の目安」をもとに作成。数値はおおよその目安です。</p>
+    </div>
+
+    <h3>ご利用にあたって</h3>
+    <div class="card">
+      <p>本アプリは、iPhone/iPadの内蔵マイクを使って音の大きさの目安を表示する簡易アプリです。測定値は機種や環境によって異なり、計量法に基づく騒音計ではありません。取引・証明・法的手続きなどの公式な用途には使用できません。</p>
+      <p>正確な測定が必要な場合は、お住まいの自治体や専門の測定事業者にご相談ください。</p>
+    </div>
+
+    <h3>プライバシー</h3>
+    <div class="card">
+      <p>本アプリは音声を録音・保存・送信しません。マイクの音は音の大きさの計算にのみ使い、端末の中だけで処理します。</p>
+    </div>
+  </div>
+</dialog>
+
+<script>
+(() => {
+  const MIN_DB = 20, MAX_DB = 120;
+  const BASE_OFFSET = 100;            // dBFS → 目安dBへの基準値(機種差あり)
+  const HISTORY_LIMIT = 150;          // 0.1秒ごと × 150 = 約15秒
+  const OFFSET_KEY = "otoMeter.offset";
+
+  const $ = id => document.getElementById(id);
+  const els = {
+    num: $("num"), arc: $("arc"), levelBox: $("level"),
+    levelLabel: $("levelLabel"), levelExample: $("levelExample"),
+    max: $("max"), avg: $("avg"), toggle: $("toggle"), reset: $("reset"),
+    error: $("error"), chart: $("chart"), info: $("info"),
+    offsetOut: $("offsetOut")
+  };
+
+  let audioCtx = null, stream = null, analyser = null, buf = null, rafId = 0;
+  let running = false;
+  let smoothed = 0, maxDb = 0, powerSum = 0, count = 0;
+  let history = [], lastHist = 0;
+  let offset = loadOffset();
+
+  // ---------- 補正値の保存(この端末のみ) ----------
+  function loadOffset() {
+    try { const v = parseFloat(localStorage.getItem(OFFSET_KEY)); return isNaN(v) ? 0 : v; }
+    catch { return 0; }
+  }
+  function saveOffset() {
+    try { localStorage.setItem(OFFSET_KEY, String(offset)); } catch {}
+  }
+  function renderOffset() {
+    els.offsetOut.textContent = (offset === 0 ? "±" : offset > 0 ? "+" : "−") + Math.abs(offset).toFixed(1) + " dB";
+  }
+
+  // ---------- 目安ラベル ----------
+  // 全国環境研協議会「騒音の目安」をもとにした一覧
+  const REFERENCE = [
+    { db: 120, ex: "飛行機のエンジンの近く",         feel: "聴覚に障害が出るほど" },
+    { db: 110, ex: "自動車のクラクション(前方2m)", feel: "聴覚に障害が出るほど" },
+    { db: 100, ex: "電車が通るときのガード下",       feel: "きわめてうるさい" },
+    { db: 90,  ex: "騒々しい工場の中・カラオケ",     feel: "きわめてうるさい" },
+    { db: 80,  ex: "地下鉄の車内・ピアノ",           feel: "うるさい" },
+    { db: 70,  ex: "セミの鳴き声・騒々しい事務所",   feel: "うるさい" },
+    { db: 60,  ex: "普通の会話・チャイム",           feel: "普通" },
+    { db: 50,  ex: "静かな事務所・エアコンの室外機", feel: "普通" },
+    { db: 40,  ex: "図書館・昼の静かな住宅地",       feel: "静か" },
+    { db: 30,  ex: "深夜の郊外・ささやき声",         feel: "静か" },
+    { db: 20,  ex: "木の葉のふれあう音",             feel: "ほとんど聞こえない" }
+  ];
+  const FEEL_COLOR = {
+    "ほとんど聞こえない": "var(--quiet)",
+    "静か": "var(--quiet)",
+    "普通": "var(--normal)",
+    "うるさい": "var(--loud)",
+    "きわめてうるさい": "var(--very)",
+    "聴覚に障害が出るほど": "var(--very)"
+  };
+
+  function levelOf(db) {
+    // いちばん近い目安を選ぶ(20〜120dBの範囲で丸める)
+    const target = Math.min(120, Math.max(20, Math.round(db / 10) * 10));
+    const ref = REFERENCE.find(r => r.db === target);
+    return { label: ref.feel, ex: ref.ex + "くらい", color: FEEL_COLOR[ref.feel] };
+  }
+
+  function renderReferenceTable() {
+    $("refTable").innerHTML = REFERENCE.map(r =>
+      `<tr><td>${r.ex}<br><small style="color:var(--muted)">${r.feel}</small></td><td>約${r.db} dB</td></tr>`
+    ).join("");
+  }
+
+  // ---------- 開始・停止 ----------
+  async function start() {
+    hideError();
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showError("この画面ではマイクを利用できません。iPhone/iPadのSafariで、https:// から始まるアドレスで開いてください。");
+      return;
+    }
+    // iOSでは、ボタンを押した直後に音声処理を作る必要がある
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new Ctx();
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+      });
+    } catch (e) {
+      audioCtx.close(); audioCtx = null;
+      if (e && e.name === "NotAllowedError") {
+        showError("マイクの使用が許可されていません。iPhoneの「設定」→「Safari」→「マイク」で許可するか、アドレスバーの「ぁあ」→「Webサイトの設定」から変更できます。");
+      } else {
+        showError("マイクを開始できませんでした。ほかのアプリがマイクを使っていないか確認してください。");
+      }
+      return;
+    }
+    if (audioCtx.state === "suspended") await audioCtx.resume();
+    const src = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    src.connect(analyser);           // スピーカーには接続しない(音は出さない)
+    buf = new Float32Array(analyser.fftSize);
+
+    running = true;
+    smoothed = 0;
+    els.toggle.textContent = "測定を停止";
+    els.toggle.classList.add("running");
+    loop();
+  }
+
+  function stop() {
+    running = false;
+    cancelAnimationFrame(rafId);
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    if (audioCtx) audioCtx.close();
+    stream = null; audioCtx = null; analyser = null;
+    els.toggle.textContent = "測定を開始";
+    els.toggle.classList.remove("running");
+    els.num.textContent = "--";
+    els.arc.setAttribute("stroke-dashoffset", "100");
+    els.levelLabel.innerHTML = "&nbsp;";
+    els.levelExample.textContent = "「測定を開始」を押すと音の大きさを表示します";
+  }
+
+  function reset() {
+    maxDb = 0; powerSum = 0; count = 0; history = [];
+    els.max.textContent = "--"; els.avg.textContent = "--";
+    drawChart();
+  }
+
+  // ---------- 測定ループ ----------
+  function loop() {
+    if (!running) return;
+    analyser.getFloatTimeDomainData(buf);
+    let sum = 0;
+    for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+    const rms = Math.sqrt(sum / buf.length);
+    const dbfs = 20 * Math.log10(Math.max(rms, 1e-9));
+    const raw = Math.max(0, dbfs + BASE_OFFSET + offset);
+
+    smoothed = smoothed === 0 ? raw : smoothed * 0.85 + raw * 0.15;
+    if (smoothed > maxDb) maxDb = smoothed;
+
+    const now = performance.now();
+    if (now - lastHist >= 100) {
+      lastHist = now;
+      // 平均はエネルギーで計算してからdBに戻す
+      powerSum += Math.pow(10, smoothed / 10);
+      count++;
+      history.push(smoothed);
+      if (history.length > HISTORY_LIMIT) history.shift();
+      render();
+    }
+    rafId = requestAnimationFrame(loop);
+  }
+
+  function render() {
+    const db = smoothed;
+    els.num.textContent = Math.round(db);
+    const pct = Math.min(1, Math.max(0, (db - MIN_DB) / (MAX_DB - MIN_DB)));
+    els.arc.setAttribute("stroke-dashoffset", String(100 - pct * 100));
+    const lv = levelOf(db);
+    document.documentElement.style.setProperty("--level", lv.color);
+    els.levelLabel.textContent = lv.label;
+    els.levelExample.textContent = lv.ex;
+    els.max.textContent = Math.round(maxDb) + " dB";
+    els.avg.textContent = count ? Math.round(10 * Math.log10(powerSum / count)) + " dB" : "--";
+    drawChart();
+  }
+
+  // ---------- グラフ ----------
+  function drawChart() {
+    const c = els.chart;
+    const dpr = window.devicePixelRatio || 1;
+    const w = c.clientWidth, h = c.clientHeight;
+    if (c.width !== w * dpr || c.height !== h * dpr) { c.width = w * dpr; c.height = h * dpr; }
+    const g = c.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    const css = getComputedStyle(document.documentElement);
+    const y = db => h - ((Math.min(MAX_DB, Math.max(MIN_DB, db)) - MIN_DB) / (MAX_DB - MIN_DB)) * h;
+
+    // 目安線(45 / 65 / 85 dB)
+    g.strokeStyle = css.getPropertyValue("--track");
+    g.lineWidth = 1;
+    g.fillStyle = css.getPropertyValue("--muted");
+    g.font = "10px sans-serif";
+    [40, 60, 80, 100].forEach(v => {
+      g.beginPath(); g.moveTo(0, y(v)); g.lineTo(w, y(v)); g.stroke();
+      g.fillText(v, 2, y(v) - 3);
+    });
+
+    if (history.length < 2) return;
+    g.strokeStyle = css.getPropertyValue("--line");
+    g.lineWidth = 2;
+    g.lineJoin = "round";
+    g.beginPath();
+    const step = w / (HISTORY_LIMIT - 1);
+    const startX = w - (history.length - 1) * step;
+    history.forEach((v, i) => {
+      const px = startX + i * step;
+      i === 0 ? g.moveTo(px, y(v)) : g.lineTo(px, y(v));
+    });
+    g.stroke();
+  }
+
+  // ---------- エラー表示 ----------
+  function showError(msg) { els.error.textContent = msg; els.error.classList.add("show"); }
+  function hideError() { els.error.classList.remove("show"); }
+
+  // ---------- イベント ----------
+  els.toggle.addEventListener("click", () => running ? stop() : start());
+  els.reset.addEventListener("click", reset);
+  $("infoBtn").addEventListener("click", () => els.info.showModal());
+  $("closeInfo").addEventListener("click", () => els.info.close());
+  els.info.addEventListener("click", e => { if (e.target === els.info) els.info.close(); });
+  $("minus").addEventListener("click", () => { offset = Math.max(-15, offset - 0.5); saveOffset(); renderOffset(); });
+  $("plus").addEventListener("click", () => { offset = Math.min(15, offset + 0.5); saveOffset(); renderOffset(); });
+  $("offsetReset").addEventListener("click", () => { offset = 0; saveOffset(); renderOffset(); });
+
+  // 画面を離れたら自動停止(バッテリーとプライバシーのため)
+  document.addEventListener("visibilitychange", () => { if (document.hidden && running) stop(); });
+  window.addEventListener("resize", drawChart);
+
+  renderOffset();
+  renderReferenceTable();
+  drawChart();
+})();
+</script>
+</body>
+</html>
